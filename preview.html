@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CampusSpend - Smart Expense Tracker for College Students</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <!-- React & Babel Standalone -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(156, 163, 175, 0.4);
+      border-radius: 9999px;
+    }
+    .dark ::-webkit-scrollbar-thumb {
+      background: rgba(75, 85, 99, 0.6);
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-200 antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    // --- Format Currency (INR) ---
+    const formatCurrency = (amount) => {
+      if (isNaN(amount) || amount === null || amount === undefined) return '₹0';
+      return new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        maximumFractionDigits: 0,
+      }).format(amount);
+    };
+
+    // --- Categories Definition ---
+    const CATEGORIES = [
+      { id: 'Food', label: 'Food & Dining', color: '#f97316', icon: '🍔' },
+      { id: 'Travel', label: 'Travel & Transit', color: '#06b6d4', icon: '🚌' },
+      { id: 'Water/Utilities', label: 'Water & Utilities', color: '#3b82f6', icon: '💧' },
+      { id: 'Shopping', label: 'Shopping & Gear', color: '#a855f7', icon: '🛍️' },
+      { id: 'Other', label: 'Other Expenses', color: '#64748b', icon: '📦' },
+    ];
+
+    const INCOME_CATEGORIES = [
+      { id: 'Allowance', label: 'Pocket Money / Allowance', color: '#10b981', icon: '💰' },
+      { id: 'Freelance', label: 'Part-time / Freelance / Tutoring', color: '#059669', icon: '💻' },
+      { id: 'Scholarship', label: 'Scholarship / Grant', color: '#34d399', icon: '🎓' },
+      { id: 'Other', label: 'Other Income', color: '#6ee7b7', icon: '💵' },
+    ];
+
+    // --- Seed Generator ---
+    const generateSeedTransactions = () => {
+      const today = new Date();
+      const formatOffset = (offset) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() - offset);
+        return d.toISOString().split('T')[0];
+      };
+
+      return [
+        { id: 'tx-1', title: 'Monthly Pocket Money / Stipend', amount: 14000, type: 'income', category: 'Allowance', date: formatOffset(3) },
+        { id: 'tx-2', title: 'Weekend Math Tutoring Session', amount: 3500, type: 'income', category: 'Freelance', date: formatOffset(1) },
+        { id: 'tx-3', title: 'Campus Canteen Lunch & Thali', amount: 180, type: 'expense', category: 'Food', date: formatOffset(0) },
+        { id: 'tx-4', title: 'Monthly Metro SmartCard Recharge', amount: 600, type: 'expense', category: 'Travel', date: formatOffset(2) },
+        { id: 'tx-5', title: 'Hostel WiFi & Electricity Share', amount: 450, type: 'expense', category: 'Water/Utilities', date: formatOffset(3) },
+        { id: 'tx-6', title: 'Swiggy Dinner with Roommates', amount: 420, type: 'expense', category: 'Food', date: formatOffset(1) },
+        { id: 'tx-7', title: 'Textbooks & Spiral Notebooks', amount: 850, type: 'expense', category: 'Shopping', date: formatOffset(4) },
+        { id: 'tx-8', title: 'Hostel RO Water Refill Card', amount: 200, type: 'expense', category: 'Water/Utilities', date: formatOffset(2) },
+        { id: 'tx-9', title: 'Shared Auto-Rickshaw to Metro', amount: 80, type: 'expense', category: 'Travel', date: formatOffset(0) },
+        { id: 'tx-10', title: 'Mobile 5G Data Pack Recharge', amount: 399, type: 'expense', category: 'Other', date: formatOffset(5) }
+      ];
+    };
+
+    const INITIAL_GOAL = {
+      id: 'goal-1',
+      title: 'Sony Wireless ANC Headphones',
+      targetAmount: 4500,
+      currentSaved: 1800,
+    };
+
+    // --- Calculations ---
+    const getMonthDetails = () => {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const monthName = now.toLocaleString('default', { month: 'long' });
+      const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
+      const currentDay = now.getDate();
+      const daysLeft = Math.max(1, totalDaysInMonth - currentDay + 1);
+      const daysPassed = Math.max(1, currentDay);
+      return { year, month, monthName, totalDaysInMonth, currentDay, daysLeft, daysPassed };
+    };
+
+    const calculateSummary = (transactions) => {
+      let totalIncome = 0;
+      let totalExpense = 0;
+      const todayStr = new Date().toISOString().split('T')[0];
+      let todayExpense = 0;
+
+      transactions.forEach((t) => {
+        const val = Number(t.amount) || 0;
+        if (t.type === 'income') {
+          totalIncome += val;
+        } else {
+          totalExpense += val;
+          if (t.date === todayStr) {
+            todayExpense += val;
+          }
+        }
+      });
+
+      const netBalance = totalIncome - totalExpense;
+      const monthDetails = getMonthDetails();
+      const dailyLimit = Math.max(0, netBalance > 0 ? netBalance / monthDetails.daysLeft : 0);
+      const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalExpense) / totalIncome) * 100) : 0;
+
+      return {
+        totalIncome,
+        totalExpense,
+        netBalance,
+        todayExpense,
+        dailyLimit: Math.round(dailyLimit),
+        savingsRate,
+        monthDetails,
+      };
+    };
+
+    const getCategoryBreakdown = (transactions) => {
+      const categoryTotals = {};
+      let totalExpenses = 0;
+      transactions.forEach((t) => {
+        if (t.type === 'expense') {
+          const val = Number(t.amount) || 0;
+          categoryTotals[t.category] = (categoryTotals[t.category] || 0) + val;
+          totalExpenses += val;
+        }
+      });
+      return Object.entries(categoryTotals).map(([name, value]) => ({
+        name,
+        value,
+        percentage: totalExpenses > 0 ? Math.round((value / totalExpenses) * 100) : 0,
+      })).sort((a, b) => b.value - a.value);
+    };
+
+    const getLast7DaysSpending = (transactions) => {
+      const result = [];
+      const today = new Date();
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+        const formattedDate = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const dayExpense = transactions
+          .filter((t) => t.type === 'expense' && t.date === dateStr)
+          .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+        result.push({ dateStr, dayName, formattedDate, spending: dayExpense, isToday: i === 0 });
+      }
+      return result;
+    };
+
+    // --- App Component ---
+    function App() {
+      // LocalStorage State
+      const [theme, setTheme] = useState(() => localStorage.getItem('campussspend_theme') || 'dark');
+      const [transactions, setTransactions] = useState(() => {
+        try {
+          const raw = localStorage.getItem('campussspend_transactions');
+          if (raw) return JSON.parse(raw);
+        } catch (e) {}
+        const seed = generateSeedTransactions();
+        localStorage.setItem('campussspend_transactions', JSON.stringify(seed));
+        return seed;
+      });
+      const [goal, setGoal] = useState(() => {
+        try {
+          const raw = localStorage.getItem('campussspend_goal');
+          if (raw) return JSON.parse(raw);
+        } catch (e) {}
+        return INITIAL_GOAL;
+      });
+
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [toast, setToast] = useState(null);
+
+      // What-If Simulator state
+      const [simItem, setSimItem] = useState('Headphones');
+      const [simPrice, setSimPrice] = useState('2000');
+
+      // Transactions list filters
+      const [searchQuery, setSearchQuery] = useState('');
+      const [filterCategory, setFilterCategory] = useState('ALL');
+      const [filterType, setFilterType] = useState('ALL');
+
+      // Goal editing
+      const [isEditingGoal, setIsEditingGoal] = useState(false);
+      const [editGoalTitle, setEditGoalTitle] = useState(goal.title);
+      const [editGoalTarget, setEditGoalTarget] = useState(goal.targetAmount);
+      const [editGoalSaved, setEditGoalSaved] = useState(goal.currentSaved);
+
+      // Theme sync
+      useEffect(() => {
+        localStorage.setItem('campussspend_theme', theme);
+        if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }, [theme]);
+
+      // State persistence
+      useEffect(() => {
+        localStorage.setItem('campussspend_transactions', JSON.stringify(transactions));
+      }, [transactions]);
+
+      useEffect(() => {
+        localStorage.setItem('campussspend_goal', JSON.stringify(goal));
+      }, [goal]);
+
+      const showNotification = (msg) => {
+        setToast(msg);
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      const summary = useMemo(() => calculateSummary(transactions), [transactions]);
+      const categoryBreakdown = useMemo(() => getCategoryBreakdown(transactions), [transactions]);
+      const last7Days = useMemo(() => getLast7DaysSpending(transactions), [transactions]);
+
+      // What-If calculation
+      const simPriceNum = parseFloat(simPrice) || 0;
+      const simNewBalance = summary.netBalance - simPriceNum;
+      const simNewDailyLimit = Math.max(0, Math.round(simNewBalance > 0 ? simNewBalance / summary.monthDetails.daysLeft : 0));
+      const simDailyDrop = Math.max(0, summary.dailyLimit - simNewDailyLimit);
+      const simDropPercent = summary.dailyLimit > 0 ? Math.round((simDailyDrop / summary.dailyLimit) * 100) : 100;
+
+      // Goal estimate
+      const goalRemaining = Math.max(0, goal.targetAmount - goal.currentSaved);
+      const goalProgress = Math.min(100, Math.round((goal.currentSaved / goal.targetAmount) * 100));
+      const dailySavingsVelocity = Math.max(0, summary.netBalance / summary.monthDetails.daysPassed);
+      const daysToGoal = dailySavingsVelocity > 0 ? Math.ceil(goalRemaining / dailySavingsVelocity) : null;
+
+      // AI Advisor insights
+      const aiInsights = useMemo(() => {
+        const list = [];
+        const foodCat = categoryBreakdown.find(c => c.name === 'Food');
+        if (foodCat && summary.totalExpense > 0) {
+          const ratio = (foodCat.value / summary.totalExpense) * 100;
+          if (ratio > 40) {
+            list.push({
+              id: 'food-alert',
+              type: 'warning',
+              title: 'High Food & Dining Outlay',
+              message: `Food takes up ${Math.round(ratio)}% (${formatCurrency(foodCat.value)}) of your budget! Cooking in the hostel or eating campus mess thalis could save ~₹1,500 this month.`,
+              badge: `${Math.round(ratio)}% of Spend`
+            });
+          }
+        }
+
+        if (summary.dailyLimit > 0 && summary.todayExpense > summary.dailyLimit) {
+          list.push({
+            id: 'daily-breach',
+            type: 'danger',
+            title: 'Daily Budget Limit Breached',
+            message: `You spent ${formatCurrency(summary.todayExpense)} today, which is ${formatCurrency(summary.todayExpense - summary.dailyLimit)} above your recommended limit of ${formatCurrency(summary.dailyLimit)}. Freeze non-essential purchases tomorrow.`,
+            badge: 'Daily Overspend'
+          });
+        } else if (summary.dailyLimit > 0 && summary.todayExpense > 0) {
+          list.push({
+            id: 'daily-safe',
+            type: 'success',
+            title: 'Disciplined Spending Today',
+            message: `Today's spend (${formatCurrency(summary.todayExpense)}) is safely under your ${formatCurrency(summary.dailyLimit)} daily allowance. Keep this momentum!`,
+            badge: 'On Track'
+          });
+        }
+
+        if (summary.savingsRate >= 30) {
+          list.push({
+            id: 'savings-good',
+            type: 'success',
+            title: 'High Savings Velocity!',
+            message: `You are saving ${summary.savingsRate}% of your income. Excellent financial discipline for a college student.`,
+            badge: `${summary.savingsRate}% Saved`
+          });
+        }
+
+        list.push({
+          id: 'tip-503020',
+          type: 'tip',
+          title: 'Student 50/30/20 Rule',
+          message: 'Allocate 50% for tuition & hostel mess, 30% for campus leisure & tech, and hold 20% in reserve for exams and emergency trips.',
+          badge: 'Strategy'
+        });
+
+        list.push({
+          id: 'tip-student-id',
+          type: 'tip',
+          title: 'Student ID Discounts',
+          message: 'Always use your student college ID card for Spotify Premium (50% off), Apple Education pricing, and Indian Railways student concessions.',
+          badge: 'Student Perk'
+        });
+
+        return list;
+      }, [categoryBreakdown, summary]);
+
+      // Handlers
+      const handleAddTx = (tx) => {
+        const item = { ...tx, id: 'tx-' + Date.now() };
+        setTransactions([item, ...transactions]);
+        showNotification(`Added "${item.title}" successfully!`);
+      };
+
+      const handleDeleteTx = (id) => {
+        setTransactions(transactions.filter(t => t.id !== id));
+        showNotification('Transaction removed.');
+      };
+
+      const handleResetAll = () => {
+        const seed = generateSeedTransactions();
+        setTransactions(seed);
+        setGoal(INITIAL_GOAL);
+        localStorage.setItem('campussspend_transactions', JSON.stringify(seed));
+        localStorage.setItem('campussspend_goal', JSON.stringify(INITIAL_GOAL));
+        showNotification('Restored 10 sample student transactions!');
+      };
+
+      const filteredList = transactions
+        .filter(t => {
+          const matchSearch = t.title.toLowerCase().includes(searchQuery.toLowerCase());
+          const matchCat = filterCategory === 'ALL' || t.category === filterCategory;
+          const matchType = filterType === 'ALL' || t.type === filterType;
+          return matchSearch && matchCat && matchType;
+        })
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const isOverLimit = summary.dailyLimit > 0 && summary.todayExpense > summary.dailyLimit;
+      const todayPercent = summary.dailyLimit > 0 ? Math.min(100, Math.round((summary.todayExpense / summary.dailyLimit) * 100)) : 100;
+
+      // Category colors mapping
+      const catColors = {
+        Food: '#f97316',
+        Travel: '#06b6d4',
+        'Water/Utilities': '#3b82f6',
+        Shopping: '#a855f7',
+        Other: '#64748b',
+        Allowance: '#10b981',
+        Freelance: '#059669',
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          {/* Toast */}
+          {toast && (
+            <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-2xl shadow-2xl text-xs font-semibold flex items-center gap-2 border border-slate-700">
+              <span>✅</span>
+              <span>{toast}</span>
+            </div>
+          )}
+
+          {/* Header */}
+          <header className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white text-lg shadow-lg shadow-indigo-600/30">
+                  💳
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-indigo-600 via-violet-600 to-pink-500 bg-clip-text text-transparent">
+                      CampusSpend
+                    </span>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                      AI Powered
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+                    Smart Expense Tracker for College Students
+                  </p>
+                </div>
+              </div>
+
+              {/* Month Pill */}
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <span>📅 {summary.monthDetails.monthName} {summary.monthDetails.year}</span>
+                <span className="w-1 h-1 rounded-full bg-slate-400"></span>
+                <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{summary.monthDetails.daysLeft} days remaining</span>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 sm:gap-3">
+                <button
+                  onClick={handleResetAll}
+                  className="px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1"
+                  title="Reset Sample Data"
+                >
+                  <span>🔄</span>
+                  <span className="hidden lg:inline">Reset Demo</span>
+                </button>
+
+                <button
+                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                  title="Toggle Theme"
+                >
+                  {theme === 'dark' ? '☀️' : '🌙'}
+                </button>
+
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-indigo-600/25 active:scale-95 transition-all"
+                >
+                  <span>➕</span>
+                  <span>Add Transaction</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* Main Body */}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
+
+            {/* 1. Dynamic Daily Limit Banner */}
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-950 p-6 sm:p-8 text-white shadow-xl shadow-indigo-950/40 border border-indigo-800/40">
+              <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-400/20">
+                      ⚡ Dynamic Daily Spending Limit
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-xs bg-slate-800/80 text-slate-300 border border-slate-700/60">
+                      {summary.monthDetails.daysLeft} days left in {summary.monthDetails.monthName}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-4xl sm:text-5xl font-black font-mono tracking-tight text-white">
+                      {formatCurrency(summary.dailyLimit)}
+                    </span>
+                    <span className="text-sm font-semibold uppercase text-indigo-200">/ day safe cap</span>
+                  </div>
+                  <p className="mt-1 text-xs text-indigo-200/80">
+                    Formula: Remaining Balance ({formatCurrency(summary.netBalance)}) ÷ {summary.monthDetails.daysLeft} Days Left
+                  </p>
+                </div>
+
+                <div className="w-full lg:w-96 bg-white/5 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-white/10 flex flex-col gap-3">
+                  <div className="flex items-center justify-between text-xs sm:text-sm">
+                    <span className="text-indigo-200 font-medium">Today's Total Spend:</span>
+                    <span className="font-mono font-bold text-white">{formatCurrency(summary.todayExpense)}</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden p-0.5 border border-slate-700/50">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isOverLimit ? 'bg-rose-500' : todayPercent > 80 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                        style={{ width: `${todayPercent}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-300">
+                      <span>{todayPercent}% of daily limit</span>
+                      <span>{isOverLimit ? `Exceeded by ${formatCurrency(summary.todayExpense - summary.dailyLimit)}` : `${formatCurrency(Math.max(0, summary.dailyLimit - summary.todayExpense))} left today`}</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-1">
+                    {isOverLimit ? (
+                      <div className="p-2 rounded-xl bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-1.5">
+                        <span>⚠️</span>
+                        <span>Daily cap exceeded! Cut discretionary spend tomorrow.</span>
+                      </div>
+                    ) : (
+                      <div className="p-2 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-1.5">
+                        <span>✅</span>
+                        <span>Spending pace is healthy for the remaining {summary.monthDetails.daysLeft} days.</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Key Balance Indicators */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+                <div className="flex items-center justify-between text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <span>Total Income</span>
+                  <span className="text-emerald-500 text-base">↙️</span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 dark:text-white mt-2">
+                  {formatCurrency(summary.totalIncome)}
+                </div>
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Stipend, tutoring, freelance</span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+                <div className="flex items-center justify-between text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <span>Total Expense</span>
+                  <span className="text-rose-500 text-base">↗️</span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 dark:text-white mt-2">
+                  {formatCurrency(summary.totalExpense)}
+                </div>
+                <span className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">Food, travel, utilities, shopping</span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+                <div className="flex items-center justify-between text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <span>Net Balance</span>
+                  <span className="text-indigo-500 text-base">💼</span>
+                </div>
+                <div className={`text-2xl sm:text-3xl font-bold font-mono mt-2 ${summary.netBalance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>
+                  {formatCurrency(summary.netBalance)}
+                </div>
+                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold mt-1 ${summary.netBalance >= 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'}`}>
+                  {summary.netBalance >= 0 ? 'Surplus Reserve' : 'Deficit'}
+                </span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+                <div className="flex items-center justify-between text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  <span>Savings Velocity</span>
+                  <span className="text-violet-500 text-base">🎯</span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 dark:text-white mt-2">
+                  {summary.savingsRate}%
+                </div>
+                <div className="mt-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${summary.savingsRate >= 30 ? 'bg-violet-500' : summary.savingsRate > 0 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                    style={{ width: `${Math.max(0, Math.min(100, summary.savingsRate))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Visual Charts (Interactive SVG Charts) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Category Breakdown (Donut Graphic) */}
+              <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>🍩</span> Expenses by Category
+                    </h3>
+                    <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                      {formatCurrency(summary.totalExpense)}
+                    </span>
+                  </div>
+
+                  {/* SVG Donut Visual */}
+                  <div className="relative flex items-center justify-center my-4 h-48">
+                    <svg viewBox="0 0 100 100" className="w-44 h-44 -rotate-90 transform">
+                      {(() => {
+                        let accumulatedPercent = 0;
+                        return categoryBreakdown.map((cat, i) => {
+                          const strokeDasharray = `${cat.percentage} ${100 - cat.percentage}`;
+                          const strokeDashoffset = -accumulatedPercent;
+                          accumulatedPercent += cat.percentage;
+                          return (
+                            <circle
+                              key={cat.name}
+                              cx="50"
+                              cy="50"
+                              r="38"
+                              fill="transparent"
+                              stroke={catColors[cat.name] || '#6366f1'}
+                              strokeWidth="14"
+                              strokeDasharray={strokeDasharray}
+                              strokeDashoffset={strokeDashoffset}
+                              className="transition-all duration-500 hover:opacity-80"
+                            />
+                          );
+                        });
+                      })()}
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">Total Spend</span>
+                      <span className="text-sm font-bold font-mono text-slate-800 dark:text-slate-100">
+                        {formatCurrency(summary.totalExpense)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Category List */}
+                <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+                  {categoryBreakdown.map(cat => (
+                    <div key={cat.name} className="flex items-center justify-between p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/40">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: catColors[cat.name] || '#6366f1' }}></span>
+                        <span className="truncate font-medium text-slate-700 dark:text-slate-300">{cat.name}</span>
+                      </div>
+                      <span className="font-mono text-slate-500 font-bold">{cat.percentage}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 7-Day Spending Bar Chart */}
+              <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>📊</span> Daily Spending (Last 7 Days)
+                    </h3>
+                    <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                      Active: Today
+                    </span>
+                  </div>
+
+                  {/* SVG Bar Chart */}
+                  <div className="h-48 flex items-end justify-between gap-2 pt-6 pb-2 px-2">
+                    {(() => {
+                      const maxSpend = Math.max(1, ...last7Days.map(d => d.spending));
+                      return last7Days.map((d) => {
+                        const heightPercent = Math.max(8, Math.round((d.spending / maxSpend) * 100));
+                        return (
+                          <div key={d.dateStr} className="flex-1 flex flex-col items-center gap-2 group h-full justify-end">
+                            <span className="text-[10px] font-mono font-bold text-slate-400 group-hover:text-indigo-500 transition-colors">
+                              ₹{d.spending}
+                            </span>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800/80 rounded-t-xl h-full flex items-end overflow-hidden">
+                              <div
+                                className={`w-full rounded-t-xl transition-all duration-500 group-hover:opacity-90 ${d.isToday ? 'bg-indigo-600' : 'bg-slate-400 dark:bg-slate-600'}`}
+                                style={{ height: `${heightPercent}%` }}
+                              />
+                            </div>
+                            <span className={`text-[11px] font-medium ${d.isToday ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-500'}`}>
+                              {d.dayName}
+                            </span>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between text-xs text-slate-500">
+                  <span>Weekly Outlay Total:</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    {formatCurrency(last7Days.reduce((acc, d) => acc + d.spending, 0))}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Smart Modules Grid: What-If Simulator + Goal Tracker */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              
+              {/* Module 1: What-If Purchase Simulator */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>🧪</span> "What-If" Purchase Simulator
+                    </h3>
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300">
+                      Simulation
+                    </span>
+                  </div>
+
+                  {/* Presets */}
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {[
+                      { name: 'Headphones', price: '2000' },
+                      { name: 'Swiggy Party', price: '600' },
+                      { name: 'Sneakers', price: '3200' },
+                      { name: 'Fest Pass', price: '1200' }
+                    ].map(p => (
+                      <button
+                        key={p.name}
+                        onClick={() => { setSimItem(p.name); setSimPrice(p.price); }}
+                        className="px-2.5 py-1 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 hover:bg-violet-50 dark:hover:bg-violet-950 text-slate-700 dark:text-slate-300 font-medium"
+                      >
+                        {p.name} (₹{p.price})
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Item Name</label>
+                      <input
+                        type="text"
+                        value={simItem}
+                        onChange={(e) => setSimItem(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Price (₹)</label>
+                      <input
+                        type="number"
+                        value={simPrice}
+                        onChange={(e) => setSimPrice(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Impact preview */}
+                  <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-700/60 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-750">
+                        <span className="text-[10px] text-slate-400 block">Current Daily Limit</span>
+                        <span className="text-lg font-bold font-mono text-slate-900 dark:text-white">{formatCurrency(summary.dailyLimit)}/d</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-750">
+                        <span className="text-[10px] text-violet-500 font-bold block">New Daily Limit</span>
+                        <span className="text-lg font-bold font-mono text-violet-600 dark:text-violet-400">{formatCurrency(simNewDailyLimit)}/d</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 dark:text-slate-300 font-medium">Daily Limit Drop:</span>
+                      <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                        -{formatCurrency(simDailyDrop)} / day ({simDropPercent}%)
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
+                      {simPriceNum > summary.netBalance ? (
+                        <span className="text-rose-500 font-bold">⚠️ Warning: Exceeds your available net balance! Deficit of {formatCurrency(simPriceNum - summary.netBalance)}.</span>
+                      ) : simDropPercent >= 40 ? (
+                        <span className="text-amber-500 font-bold">⚠️ High budget impact: Cuts your daily spending rate by {simDropPercent}%.</span>
+                      ) : (
+                        <span className="text-emerald-500 font-bold">✅ Safe to purchase without breaking your month-end goal.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (simPriceNum <= 0) return;
+                    handleAddTx({
+                      title: simItem || 'Simulator Purchase',
+                      amount: simPriceNum,
+                      type: 'expense',
+                      category: 'Shopping',
+                      date: new Date().toISOString().split('T')[0]
+                    });
+                  }}
+                  className="mt-4 w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold shadow-md active:scale-95 transition-all"
+                >
+                  Confirm & Log Expense Now
+                </button>
+              </div>
+
+              {/* Module 2: Purchase Goal Tracker */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>🎯</span> Purchase Goal Tracker
+                    </h3>
+                    <button
+                      onClick={() => setIsEditingGoal(!isEditingGoal)}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      {isEditingGoal ? 'Cancel' : 'Edit Goal'}
+                    </button>
+                  </div>
+
+                  {isEditingGoal ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const t = parseFloat(editGoalTarget) || 1000;
+                        const s = parseFloat(editGoalSaved) || 0;
+                        setGoal({ ...goal, title: editGoalTitle, targetAmount: t, currentSaved: Math.min(t, s) });
+                        setIsEditingGoal(false);
+                        showNotification('Goal updated!');
+                      }}
+                      className="space-y-3"
+                    >
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Goal Target</label>
+                        <input
+                          type="text"
+                          value={editGoalTitle}
+                          onChange={(e) => setEditGoalTitle(e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target (₹)</label>
+                          <input
+                            type="number"
+                            value={editGoalTarget}
+                            onChange={(e) => setEditGoalTarget(e.target.value)}
+                            className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Saved (₹)</label>
+                          <input
+                            type="number"
+                            value={editGoalSaved}
+                            onChange={(e) => setEditGoalSaved(e.target.value)}
+                            className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white"
+                          />
+                        </div>
+                      </div>
+                      <button type="submit" className="w-full py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold">
+                        Save Changes
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-lg font-bold text-slate-900 dark:text-white">{goal.title}</h4>
+                          <span className="text-xs text-slate-500 font-mono">Target: {formatCurrency(goal.targetAmount)}</span>
+                        </div>
+                        <span className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                          {goalProgress}%
+                        </span>
+                      </div>
+
+                      {/* Bar */}
+                      <div className="space-y-1">
+                        <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-200/50 dark:border-slate-700">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700"
+                            style={{ width: `${goalProgress}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-slate-500">
+                          <span>Saved: {formatCurrency(goal.currentSaved)}</span>
+                          <span>Remaining: {formatCurrency(goalRemaining)}</span>
+                        </div>
+                      </div>
+
+                      {/* Velocity calculation card */}
+                      <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/50 space-y-1 text-xs">
+                        <div className="flex justify-between font-semibold text-emerald-900 dark:text-emerald-200">
+                          <span>Daily Savings Velocity:</span>
+                          <span className="font-mono font-bold">{formatCurrency(dailySavingsVelocity)} / day</span>
+                        </div>
+                        <div className="text-emerald-800 dark:text-emerald-300">
+                          {goal.currentSaved >= goal.targetAmount ? (
+                            <span>🎉 Goal Achieved! Funds are ready.</span>
+                          ) : daysToGoal !== null ? (
+                            <span>Estimated <strong className="underline decoration-emerald-500">{daysToGoal} days</strong> to reach goal at current savings rate.</span>
+                          ) : (
+                            <span>No daily savings surplus recorded yet.</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-slate-400 font-medium">Quick Deposit:</span>
+                        <div className="flex gap-1.5">
+                          {[200, 500, 1000].map(amt => (
+                            <button
+                              key={amt}
+                              onClick={() => {
+                                const newS = Math.min(goal.targetAmount, goal.currentSaved + amt);
+                                setGoal({ ...goal, currentSaved: newS });
+                                showNotification(`Added ${formatCurrency(amt)} to goal!`);
+                              }}
+                              className="px-2 py-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 text-slate-700 dark:text-slate-300"
+                            >
+                              +₹{amt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Rule-Based AI Advisor */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🤖</span>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Rule-Based AI Financial Advisor
+                  </h3>
+                </div>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                  {aiInsights.length} Heuristics Running
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {aiInsights.map(item => (
+                  <div
+                    key={item.id}
+                    className={`p-4 rounded-2xl border flex flex-col justify-between ${
+                      item.type === 'danger'
+                        ? 'border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20'
+                        : item.type === 'warning'
+                        ? 'border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/20'
+                        : item.type === 'success'
+                        ? 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20'
+                        : 'border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">{item.title}</h4>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-white/70 dark:bg-slate-800">
+                          {item.badge}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{item.message}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 6. Recent Transactions List */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Recent Transactions</h3>
+                  <p className="text-xs text-slate-500">Showing {filteredList.length} of {transactions.length} entries</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Search by title..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white w-40 sm:w-48"
+                  />
+                  <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200 dark:border-slate-700 text-xs">
+                    {['ALL', 'expense', 'income'].map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setFilterType(t)}
+                        className={`px-2 py-1 rounded-lg ${filterType === t ? 'bg-white dark:bg-slate-900 font-bold text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500'}`}
+                      >
+                        {t === 'ALL' ? 'All' : t === 'expense' ? 'Spend' : 'Income'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <select
+                    value={filterCategory}
+                    onChange={(e) => setFilterCategory(e.target.value)}
+                    className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300"
+                  >
+                    <option value="ALL">All Categories</option>
+                    {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                {filteredList.map(tx => {
+                  const isInc = tx.type === 'income';
+                  return (
+                    <div
+                      key={tx.id}
+                      className="flex items-center justify-between p-3 rounded-2xl border border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm ${isInc ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                          {isInc ? '💰' : tx.category === 'Food' ? '🍔' : tx.category === 'Travel' ? '🚌' : tx.category === 'Water/Utilities' ? '💧' : tx.category === 'Shopping' ? '🛍️' : '📦'}
+                        </div>
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-white">{tx.title}</h4>
+                          <span className="text-[11px] text-slate-400 font-mono">{tx.date} • {tx.category}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm sm:text-base font-bold font-mono ${isInc ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                          {isInc ? '+' : '-'}{formatCurrency(tx.amount)}
+                        </span>
+                        <button
+                          onClick={() => handleDeleteTx(tx.id)}
+                          className="text-slate-400 hover:text-rose-500 p-1 text-xs"
+                          title="Delete"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </main>
+
+          {/* Quick Add Modal */}
+          {isModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+              <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-2xl">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Add Transaction</h3>
+                  <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">✕</button>
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const title = formData.get('title').trim();
+                    const amount = parseFloat(formData.get('amount'));
+                    const type = formData.get('type');
+                    const category = formData.get('category');
+                    const date = formData.get('date');
+
+                    if (!title) {
+                      alert('Please enter a description');
+                      return;
+                    }
+                    if (isNaN(amount) || amount <= 0) {
+                      alert('Amount must be positive and greater than ₹0');
+                      return;
+                    }
+
+                    handleAddTx({ title, amount, type, category, date });
+                    setIsModalOpen(false);
+                  }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Type</label>
+                    <select name="type" className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs">
+                      <option value="expense">Expense</option>
+                      <option value="income">Income</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Title / Description</label>
+                    <input
+                      name="title"
+                      type="text"
+                      placeholder="e.g. Campus Canteen Lunch"
+                      required
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Amount (₹)</label>
+                    <input
+                      name="amount"
+                      type="number"
+                      step="any"
+                      min="1"
+                      placeholder="250"
+                      required
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Category</label>
+                      <select name="category" className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs">
+                        {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Date</label>
+                      <input
+                        name="date"
+                        type="date"
+                        defaultValue={new Date().toISOString().split('T')[0]}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button type="button" onClick={() => setIsModalOpen(false)} className="px-3.5 py-1.5 text-xs text-slate-500">Cancel</button>
+                    <button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-md">
+                      Save Transaction
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <footer className="mt-auto py-6 border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 text-center text-xs text-slate-500">
+            <p>CampusSpend • Smart Expense Tracker for College Students • React + Tailwind CSS + LocalStorage</p>
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
